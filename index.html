@@ -196,6 +196,7 @@
 
   @media print{.toolbar,.add-post-btn,.card-actions,.add-thumb-btn{display:none!important;}body{background:#fff;}.post-card{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -855,6 +856,13 @@ document.getElementById('datasOverlay').addEventListener('click', e=>{if(e.targe
 
 const STORAGE_KEY = 'calendario_editorial_barbearia_yago_lopes_2026';
 
+// ===== SUPABASE CONFIG =====
+const SUPABASE_URL = 'https://aprneolltdkizvfakuus.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_tmWBQV8mZnk7FBvq1iZ3pA_lprGokcu';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const CALENDAR_ID = 'barbearia-yago-lopes-2026';
+const CALENDAR_NAME = 'Calendário Barbearia Yago Lopes';
+
 function getSiteData(){
   return {
     header:{
@@ -868,13 +876,48 @@ function getSiteData(){
   };
 }
 
-function saveSiteData(){
+function saveLocalBackup(data){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function loadLocalBackup(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(!raw) return null;
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(getSiteData()));
-    showToast('💾 Alterações salvas no site!');
+    return JSON.parse(raw);
   }catch(err){
     console.error(err);
-    alert('Não foi possível salvar neste navegador.');
+    return null;
+  }
+}
+
+async function saveSiteData(){
+  const payload = getSiteData();
+  try{
+    saveLocalBackup(payload);
+  }catch(err){
+    console.error(err);
+  }
+
+  try{
+    const { error } = await supabase
+      .from('calendarios')
+      .upsert({
+        id: CALENDAR_ID,
+        nome: CALENDAR_NAME,
+        dados: payload
+      }, { onConflict: 'id' });
+
+    if(error){
+      console.error(error);
+      showToast('⚠️ Salvo no navegador, mas falhou no site.');
+      return;
+    }
+
+    showToast('✅ Salvo no site!');
+  }catch(err){
+    console.error(err);
+    showToast('⚠️ Salvo no navegador, mas falhou no site.');
   }
 }
 
@@ -899,13 +942,29 @@ function applySiteData(data){
   }
 }
 
-function loadSiteData(){
+async function loadSiteData(){
   try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(!raw) return;
-    applySiteData(JSON.parse(raw));
+    const { data, error } = await supabase
+      .from('calendarios')
+      .select('dados')
+      .eq('id', CALENDAR_ID)
+      .maybeSingle();
+
+    if(!error && data && data.dados){
+      applySiteData(data.dados);
+      return;
+    }
+
+    if(error){
+      console.warn('Erro ao carregar do Supabase:', error);
+    }
   }catch(err){
-    console.error(err);
+    console.warn('Erro ao carregar do Supabase:', err);
+  }
+
+  const localData = loadLocalBackup();
+  if(localData){
+    applySiteData(localData);
   }
 }
 
@@ -916,21 +975,26 @@ function showToast(msg){
 
 document.getElementById('modalOverlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
 
-// ── Init ──
-loadSiteData();
-buildMonthNav();
-renderAll();
+function setupMonthObserver(){
+  const observer = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){
+        const id=e.target.id;
+        const idx=parseInt(id.replace('month-',''));
+        document.querySelectorAll('.month-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
+      }
+    });
+  },{threshold:0.15});
+  document.querySelectorAll('.month-block').forEach(el=>observer.observe(el));
+}
 
-const observer = new IntersectionObserver((entries)=>{
-  entries.forEach(e=>{
-    if(e.isIntersecting){
-      const id=e.target.id;
-      const idx=parseInt(id.replace('month-',''));
-      document.querySelectorAll('.month-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
-    }
-  });
-},{threshold:0.15});
-document.querySelectorAll('.month-block').forEach(el=>observer.observe(el));
+// ── Init ──
+(async function initSite(){
+  await loadSiteData();
+  buildMonthNav();
+  renderAll();
+  setupMonthObserver();
+})();
 </script>
 </body>
 </html>
