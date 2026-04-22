@@ -859,7 +859,9 @@ const STORAGE_KEY = 'calendario_editorial_barbearia_yago_lopes_2026';
 // ===== SUPABASE CONFIG =====
 const SUPABASE_URL = 'https://aprneolltdkizvfakuus.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_tmWBQV8mZnk7FBvq1iZ3pA_lprGokcu';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase && typeof window.supabase.createClient === 'function'
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 const CALENDAR_ID = 'barbearia-yago-lopes-2026';
 const CALENDAR_NAME = 'Calendário Barbearia Yago Lopes';
 
@@ -893,14 +895,20 @@ function loadLocalBackup(){
 
 async function saveSiteData(){
   const payload = getSiteData();
+
   try{
     saveLocalBackup(payload);
   }catch(err){
     console.error(err);
   }
 
+  if(!supabaseClient){
+    showToast('⚠️ Supabase não carregou. Salvo só no navegador.');
+    return;
+  }
+
   try{
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from('calendarios')
       .upsert({
         id: CALENDAR_ID,
@@ -943,8 +951,16 @@ function applySiteData(data){
 }
 
 async function loadSiteData(){
+  if(!supabaseClient){
+    const localData = loadLocalBackup();
+    if(localData){
+      applySiteData(localData);
+    }
+    return;
+  }
+
   try{
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('calendarios')
       .select('dados')
       .eq('id', CALENDAR_ID)
